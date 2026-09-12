@@ -432,7 +432,7 @@
         }
 
         // Host Network Listeners
-        coopNet.on('PLAYER_JOINED', () => {
+        function onPlayer2Connected() {
             const hostP2Status = document.getElementById('hostP2Status');
             if (hostP2Status) {
                 hostP2Status.textContent = 'CONNECTED';
@@ -443,6 +443,13 @@
             startBtn.disabled = false;
             const savedData = CoopStorage.getData();
             startBtn.textContent = savedData.currentLevel > 0 ? `Resume Co-Op (Level ${savedData.currentLevel + 1})` : 'Start Co-Op Game';
+        }
+
+        coopNet.on('PLAYER_JOINED', onPlayer2Connected);
+        coopNet.on('connected', (data) => {
+            if (data && data.isHost) {
+                onPlayer2Connected();
+            }
         });
 
         document.getElementById('hostStartBtn').addEventListener('click', () => {
