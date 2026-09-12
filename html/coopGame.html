@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Fate Runner - Co-Op Mode</title>
+	<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+	<style>
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
+
+		body {
+			background: url('../images/bg-green1.jpg') no-repeat center center fixed;
+			background-size: cover;
+			font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			min-height: 100vh;
+			overflow: hidden;
+			color: white;
+		}
+
+		/* Top HUD Bar */
+		.hud-container {
+			position: fixed;
+			top: 15px;
+			left: 50%;
+			transform: translateX(-50%);
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			background: rgba(10, 25, 10, 0.9);
+			backdrop-filter: blur(10px);
+			border: 2px solid #36FF01;
+			box-shadow: 0 0 25px rgba(54, 255, 1, 0.4);
+			padding: 10px 25px;
+			border-radius: 40px;
+			z-index: 1000;
+			min-width: 800px;
+		}
+
+		.hud-item {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			font-size: 1.05rem;
+			font-weight: bold;
+			text-shadow: 0 0 8px rgba(54, 255, 1, 0.6);
+		}
+
+		.hud-level {
+			color: #00E5FF;
+		}
+
+		.hud-coins {
+			color: #FFD700;
+		}
+
+		.role-badge {
+			padding: 4px 12px;
+			border-radius: 15px;
+			font-size: 0.85rem;
+			text-transform: uppercase;
+			letter-spacing: 1px;
+		}
+
+		.role-host {
+			background: #004bd7;
+			color: #00E5FF;
+			border: 1px solid #00E5FF;
+		}
+
+		.role-p2 {
+			background: #e65100;
+			color: #FFE0B2;
+			border: 1px solid #FF7700;
+		}
+
+		.badge-tag {
+			font-size: 0.75rem;
+			padding: 2px 6px;
+			border-radius: 8px;
+			margin-right: 4px;
+		}
+
+		.tag-p1 {
+			background: #0052cc;
+			color: #00e5ff;
+		}
+
+		.tag-p2 {
+			background: #d84315;
+			color: #ffcc80;
+		}
+
+		.status-alive {
+			color: #04FF61;
+		}
+
+		.status-shield {
+			color: #00E5FF;
+		}
+
+		.status-dead {
+			color: #FF3333;
+			font-weight: bold;
+		}
+
+		.game {
+			position: relative;
+			overflow: hidden;
+		}
+
+		.background {
+			table-layout: fixed;
+			border-spacing: 0;
+		}
+
+		.background td {
+			padding: 0;
+		}
+
+		.lava,
+		.actor {
+			background: #36FF01;
+		}
+
+		.wall {
+			background: #444;
+			border: solid 3px #333;
+			box-sizing: content-box;
+		}
+
+		.actor {
+			position: absolute;
+		}
+
+		/* PLAYER 1: CYAN / BLUE */
+		.player.player-blue {
+			background: linear-gradient(135deg, #00d2ff, #004bd7) !important;
+			border-radius: 4px;
+			box-shadow: 0 0 16px #00d2ff !important;
+			transition: height 0.1s ease, top 0.1s ease;
+		}
+
+		/* PLAYER 2: BRIGHT ORANGE (High-contrast Neon Glow) */
+		.player.player-orange {
+			background: linear-gradient(135deg, #ff9900, #ff4400) !important;
+			border-radius: 4px;
+			box-shadow: 0 0 18px #ff7700, 0 0 30px rgba(255, 119, 0, 0.7) !important;
+			transition: height 0.1s ease, top 0.1s ease;
+		}
+
+		.player-dead {
+			opacity: 0.4;
+			filter: grayscale(80%) brightness(50%) !important;
+		}
+
+		/* Overhead Tags */
+		.player-tag {
+			position: absolute;
+			top: -14px;
+			left: 50%;
+			transform: translateX(-50%);
+			font-size: 8px;
+			font-weight: 900;
+			padding: 1px 4px;
+			border-radius: 4px;
+			white-space: nowrap;
+			pointer-events: none;
+			letter-spacing: 0.5px;
+		}
+
+		.player-tag.tag-p1 {
+			background: rgba(0, 75, 215, 0.85);
+			color: #00e5ff;
+			border: 1px solid #00e5ff;
+		}
+
+		.player-tag.tag-p2 {
+			background: rgba(216, 67, 21, 0.85);
+			color: #ffffff;
+			border: 1px solid #ff7700;
+			text-shadow: 0 0 4px #ff7700;
+		}
+
+		.player.has-shield {
+			border: 2px solid #ffffff !important;
+			outline: 3px solid #00e5ff !important;
+			outline-offset: 1px !important;
+			box-shadow: 0 0 20px #00e5ff, 0 0 40px #00b0ff, inset 0 0 10px #ffffff !important;
+			animation: shieldAuraGlow 0.8s infinite alternate;
+		}
+
+		.player.invulnerable {
+			animation: invulnerableBlink 0.15s infinite alternate !important;
+		}
+
+		@keyframes shieldAuraGlow {
+			from {
+				outline-color: #00e5ff;
+				box-shadow: 0 0 15px #00e5ff, 0 0 30px #00b0ff, inset 0 0 6px #ffffff;
+			}
+			to {
+				outline-color: #ffffff;
+				box-shadow: 0 0 30px #00ffff, 0 0 55px #00e5ff, inset 0 0 14px #ffffff;
+			}
+		}
+
+		@keyframes invulnerableBlink {
+			0% { opacity: 0.3; filter: brightness(200%); }
+			100% { opacity: 1; filter: brightness(100%); }
+		}
+
+		.shield {
+			background: url('../images/shield.png') no-repeat center center !important;
+			background-size: 100% 100% !important;
+			border-radius: 50%;
+			box-shadow: 0 0 22px #00e5ff, 0 0 45px rgba(0, 229, 255, 0.8);
+			animation: shieldItemPulse 1.2s infinite alternate;
+			z-index: 6;
+		}
+
+		@keyframes shieldItemPulse {
+			from { transform: scale(1.0); }
+			to { transform: scale(1.22); }
+		}
+
+		.coin {
+			background: radial-gradient(circle, #fff700, #ff8800);
+			border-radius: 50%;
+			box-shadow: 0 0 12px #ffbb00;
+			animation: coinGlow 1.2s infinite alternate;
+		}
+
+		@keyframes coinGlow {
+			from { box-shadow: 0 0 8px #ffbb00; }
+			to { box-shadow: 0 0 18px #ffff00; }
+		}
+
+		.spring {
+			background: linear-gradient(180deg, #00ffcc, #008866);
+			border-top: 3px solid #ffffff;
+			border-radius: 4px 4px 0 0;
+			box-shadow: 0 0 15px #00ffcc;
+		}
+
+		.enemy {
+			background: linear-gradient(135deg, #09ff00, #00ffb3);
+			border-radius: 6px;
+			box-shadow: 0 0 14px #09ff00;
+		}
+
+		.trackingEnemy {
+			background: linear-gradient(135deg, #ffaa00, #ff3300);
+			border-radius: 50%;
+			box-shadow: 0 0 16px #ff3300;
+		}
+
+		.ladder {
+			background: url('../images/stairs.png') no-repeat center center !important;
+			background-size: 100% 100% !important;
+			z-index: 4;
+		}
+
+		.turret {
+			background: radial-gradient(circle at 40% 40%, #666, #222);
+			border: 2px solid #ff3333;
+			border-radius: 4px;
+			box-shadow: 0 0 12px rgba(255, 50, 50, 0.7);
+			z-index: 5;
+		}
+
+		.turret-barrel {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			width: 14px;
+			height: 5px;
+			margin-top: -2.5px;
+			transform-origin: 0% 50%;
+			background: linear-gradient(90deg, #888, #ff4444, #ffaa00);
+			border-radius: 0 3px 3px 0;
+		}
+
+		.bullet {
+			background: radial-gradient(circle at 40% 40%, #ffff00, #ffaa00, #ff3300);
+			border-radius: 50%;
+			box-shadow: 0 0 14px rgba(255, 80, 0, 0.8);
+			z-index: 10;
+		}
+
+		.cannon {
+			background: radial-gradient(circle at 35% 35%, #555, #1a1a2e);
+			border: 2px solid #9b59b6;
+			border-radius: 6px;
+			box-shadow: 0 0 14px rgba(155, 89, 182, 0.8);
+			z-index: 5;
+		}
+
+		.cannon-barrel {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			width: 22px;
+			height: 10px;
+			margin-top: -5px;
+			transform-origin: 0% 50%;
+			background: linear-gradient(90deg, #666, #9b59b6, #c300ff);
+			border-radius: 0 5px 5px 0;
+		}
+
+		.cannonBall {
+			background: radial-gradient(circle at 35% 35%, #ffffff, #ffee00, #ff7700, #cc3300);
+			border-radius: 50%;
+			box-shadow: 0 0 22px rgb(255, 136, 0);
+			z-index: 10;
+		}
+
+		.explosion {
+			background: radial-gradient(circle, rgba(255, 255, 200, 0.9) 0%, rgba(255, 80, 0, 0.6) 45%, transparent 100%);
+			border-radius: 50%;
+			box-shadow: 0 0 30px rgba(255, 150, 0, 0.9);
+			z-index: 15;
+			pointer-events: none;
+		}
+
+		.laser-emitter {
+			background: radial-gradient(circle at 35% 35%, #4a1525, #18050c) !important;
+			border: 2px solid #ff0055 !important;
+			border-radius: 5px;
+			box-shadow: 0 0 12px rgba(255, 0, 85, 0.6) !important;
+			z-index: 15;
+		}
+
+		.laser-nozzle {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			width: 10px;
+			height: 10px;
+			margin-top: -5px;
+			margin-left: -5px;
+			background: radial-gradient(circle, #ffffff 10%, #ff0055 60%, #990033 100%) !important;
+			border-radius: 50%;
+		}
+
+		.laser-barrel {
+			position: absolute;
+			background: linear-gradient(90deg, #3a101d, #ff0055, #ff007f) !important;
+		}
+
+		.laser-emitter.laser-x .laser-barrel {
+			top: 50%;
+			right: -5px;
+			width: 8px;
+			height: 6px;
+			margin-top: -3px;
+		}
+
+		.laser-emitter.laser-y .laser-barrel {
+			bottom: -5px;
+			left: 50%;
+			width: 6px;
+			height: 8px;
+			margin-left: -3px;
+		}
+
+		.laserCharging {
+			background: rgba(255, 0, 85, 0.3) !important;
+			border: 1px dashed rgba(255, 51, 136, 0.9) !important;
+			z-index: 12;
+		}
+
+		.laserOn {
+			background: linear-gradient(90deg, #ffffff 0%, #ff0055 25%, #ff007f 50%, #ff0033 75%, #ffffff 100%) !important;
+			background-size: 200% 200% !important;
+			box-shadow: 0 0 25px #ff0055, 0 0 45px #ff007f !important;
+			z-index: 14;
+		}
+
+		.laserOn.laser-y {
+			background: linear-gradient(180deg, #ffffff 0%, #ff0055 25%, #ff007f 50%, #ff0033 75%, #ffffff 100%) !important;
+			background-size: 200% 200% !important;
+		}
+
+		.laser-energy-flow {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: repeating-linear-gradient(90deg, transparent, transparent 12px, rgba(255, 255, 255, 0.7) 12px, rgba(255, 255, 255, 0.7) 24px) !important;
+		}
+
+		/* Disconnect Modal */
+		.modal-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: rgba(0, 0, 0, 0.85);
+			backdrop-filter: blur(8px);
+			display: none;
+			justify-content: center;
+			align-items: center;
+			z-index: 3000;
+		}
+
+		.modal-overlay.active {
+			display: flex;
+		}
+
+		.modal-card {
+			background: rgba(15, 30, 15, 0.95);
+			border: 2px solid #ff4444;
+			box-shadow: 0 0 40px rgba(255, 50, 50, 0.6);
+			border-radius: 20px;
+			padding: 35px;
+			text-align: center;
+			max-width: 450px;
+		}
+
+		.controls-guide {
+			position: fixed;
+			bottom: 12px;
+			left: 50%;
+			transform: translateX(-50%);
+			font-size: 0.9rem;
+			color: rgba(255, 255, 255, 0.8);
+			background: rgba(0, 0, 0, 0.7);
+			padding: 6px 20px;
+			border-radius: 20px;
+			border: 1px solid rgba(54, 255, 1, 0.3);
+		}
+	</style>
+</head>
+
+<body>
+	<!-- HUD Header -->
+	<div class="hud-container">
+		<div class="hud-item" id="hudRoomCode" style="color: #FFD700; font-family: monospace;">ROOM: ----</div>
+		<div class="hud-item hud-level" id="hudLevel">Co-Op Level 1</div>
+		<div class="hud-item hud-coins" id="hudCoins">🪙 0 / 0</div>
+		<div class="hud-item" id="hudP1Status"><span class="badge-tag tag-p1">P1</span> 💚 ALIVE</div>
+		<div class="hud-item" id="hudP2Status"><span class="badge-tag tag-p2">P2</span> 🧡 ALIVE</div>
+		<div class="hud-item role-badge" id="hudRole">ROLE</div>
+		<div class="hud-item" id="hudPing" style="color: #a5d6a7; font-size: 0.9rem;">📶 --ms</div>
+	</div>
+
+	<!-- Disconnect Modal -->
+	<div class="modal-overlay" id="disconnectModal">
+		<div class="modal-card">
+			<h2 style="color: #ff5555; margin-bottom: 15px;">Partner Disconnected</h2>
+			<p style="color: #ccc; margin-bottom: 25px;">The other player left the game session or network connection was lost.</p>
+			<button onclick="window.location.href='coopLobby.html'" style="background: #296C02; color: #fff; padding: 10px 30px; border-radius: 25px; border: none; cursor: pointer; font-size: 1.1rem;">Return to Lobby</button>
+		</div>
+	</div>
+
+	<!-- Audio -->
+	<audio id="bgSound" src="../audio/survive.mp3" loop></audio>
+
+	<!-- Controls Footer -->
+	<div class="controls-guide">Co-Op Controls: <b>WASD</b> or <b>Arrow Keys</b> | Blue: P1 (Host) | Orange: P2</div>
+
+	<script>
+		window.addEventListener('load', () => {
+			const audio = document.getElementById('bgSound');
+			if (audio) {
+				audio.volume = 0.4;
+				audio.play().catch(() => {
+					const unmute = () => {
+						audio.play();
+						document.removeEventListener('click', unmute);
+						document.removeEventListener('keydown', unmute);
+					};
+					document.addEventListener('click', unmute);
+					document.addEventListener('keydown', unmute);
+				});
+			}
+		});
+	</script>
+	<script type="module" src="../js/multiplayer/coopStart.js"></script>
+</body>
+
+</html>

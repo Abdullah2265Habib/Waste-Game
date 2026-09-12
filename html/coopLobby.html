@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fate Runner - Co-Op Lobby</title>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: url('../images/bg-menu-green.jpg') no-repeat center center fixed;
+            background-size: cover;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .lobby-container {
+            background: rgba(10, 25, 10, 0.92);
+            border: 2px solid #36FF01;
+            box-shadow: 0 0 35px rgba(54, 255, 1, 0.4);
+            border-radius: 24px;
+            padding: 35px;
+            width: 92%;
+            max-width: 680px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            position: relative;
+            z-index: 10;
+        }
+
+        .lobby-title {
+            font-size: 2.8rem;
+            color: #36FF01;
+            text-shadow: 0 0 20px rgba(54, 255, 1, 0.8);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .lobby-subtitle {
+            font-size: 1.05rem;
+            color: #a5d6a7;
+            margin-bottom: 25px;
+        }
+
+        .tabs-container {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 25px;
+            justify-content: center;
+        }
+
+        .tab-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(54, 255, 1, 0.4);
+            color: #ffffff;
+            font-size: 1.1rem;
+            padding: 12px 28px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .tab-btn.active, .tab-btn:hover {
+            background: linear-gradient(135deg, #04FF61, #00B0FF);
+            border-color: #04FF61;
+            color: #000;
+            font-weight: bold;
+            box-shadow: 0 0 20px rgba(4, 255, 97, 0.5);
+        }
+
+        .tab-pane {
+            display: none;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .tab-pane.active {
+            display: flex;
+        }
+
+        .code-display-box {
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px dashed #36FF01;
+            border-radius: 16px;
+            padding: 20px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .room-code-text {
+            font-size: 2.6rem;
+            font-weight: 900;
+            color: #FFD700;
+            letter-spacing: 6px;
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.8);
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .room-input {
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #36FF01;
+            border-radius: 30px;
+            padding: 12px 24px;
+            font-size: 1.5rem;
+            color: #FFD700;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            outline: none;
+            width: 60%;
+            box-shadow: inset 0 0 10px rgba(54, 255, 1, 0.2);
+        }
+
+        .room-input:focus {
+            box-shadow: 0 0 15px rgba(54, 255, 1, 0.6);
+        }
+
+        .players-lobby-card {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(54, 255, 1, 0.3);
+            border-radius: 16px;
+            padding: 18px;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            gap: 15px;
+            margin: 10px 0;
+        }
+
+        .player-slot {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid transparent;
+        }
+
+        .slot-p1 {
+            border-color: #00E5FF;
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
+        }
+
+        .slot-p2 {
+            border-color: #FF7700;
+            box-shadow: 0 0 15px rgba(255, 119, 0, 0.2);
+        }
+
+        .player-avatar {
+            width: 45px;
+            height: 45px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .avatar-p1 {
+            background: linear-gradient(135deg, #00d2ff, #004bd7);
+            box-shadow: 0 0 15px #00d2ff;
+        }
+
+        .avatar-p2 {
+            background: linear-gradient(135deg, #ff9900, #ff4400);
+            box-shadow: 0 0 15px #ff7700;
+        }
+
+        .player-name {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .name-p1 { color: #00E5FF; }
+        .name-p2 { color: #FF7700; }
+
+        .player-status {
+            font-size: 0.85rem;
+            padding: 3px 10px;
+            border-radius: 12px;
+            text-transform: uppercase;
+        }
+
+        .status-ready {
+            background: #2e7d32;
+            color: #a5d6a7;
+        }
+
+        .status-waiting {
+            background: #e65100;
+            color: #ffe0b2;
+            animation: pulseText 1.5s infinite alternate;
+        }
+
+        .action-btn {
+            background: linear-gradient(145deg, #296C02, #2D2DA8);
+            color: white;
+            font-size: 1.4rem;
+            padding: 14px 40px;
+            border-radius: 40px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0px 8px 20px rgba(25, 155, 453, 0.4);
+            font-weight: bold;
+        }
+
+        .action-btn:hover:not(:disabled) {
+            background: linear-gradient(160deg, #04FF61, #00B0FF);
+            box-shadow: 0px 15px 30px rgba(4, 255, 97, 0.6);
+            transform: scale(1.05);
+            color: #000;
+        }
+
+        .action-btn:disabled {
+            background: #444;
+            color: #888;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .saved-progress-box {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(54, 255, 1, 0.2);
+            border-radius: 14px;
+            padding: 15px;
+            width: 100%;
+            margin-top: 15px;
+            font-size: 0.95rem;
+            text-align: left;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .return-btn {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #aaa;
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .return-btn:hover {
+            border-color: #fff;
+            color: #fff;
+        }
+
+        @keyframes pulseText {
+            from { opacity: 0.6; }
+            to { opacity: 1.0; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="lobby-container">
+        <h1 class="lobby-title">2-Player Co-Op</h1>
+        <p class="lobby-subtitle">Team up over real-time WebRTC UDP connection</p>
+
+        <!-- Mode Select Tabs -->
+        <div class="tabs-container">
+            <button class="tab-btn active" id="tabCreate">Create Lobby (Host)</button>
+            <button class="tab-btn" id="tabJoin">Join Lobby (Player 2)</button>
+        </div>
+
+        <!-- CREATE HOST PANE -->
+        <div class="tab-pane active" id="paneCreate">
+            <div class="code-display-box">
+                <span style="color: #a5d6a7; font-size: 0.95rem;">SHARE THIS ROOM CODE WITH PLAYER 2:</span>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <div class="room-code-text" id="hostRoomCode">GENERATING...</div>
+                    <button id="copyCodeBtn" style="background: rgba(54, 255, 1, 0.2); border: 1px solid #36FF01; color: #36FF01; border-radius: 12px; padding: 8px 14px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s ease;">📋 Copy</button>
+                </div>
+                <span style="font-size: 0.85rem; color: #888;">Protocol: WebRTC DataChannel (UDP Low-Latency)</span>
+            </div>
+
+            <div class="players-lobby-card">
+                <div class="player-slot slot-p1">
+                    <div class="player-avatar avatar-p1">P1</div>
+                    <div class="player-name name-p1">Host (Blue)</div>
+                    <div class="player-status status-ready">Ready</div>
+                </div>
+
+                <div class="player-slot slot-p2" id="slotP2">
+                    <div class="player-avatar avatar-p2">P2</div>
+                    <div class="player-name name-p2">Player 2 (Orange)</div>
+                    <div class="player-status status-waiting" id="hostP2Status">Waiting for Player 2...</div>
+                </div>
+            </div>
+
+            <button class="action-btn" id="hostStartBtn" disabled>Waiting for Player 2...</button>
+        </div>
+
+        <!-- JOIN CLIENT PANE -->
+        <div class="tab-pane" id="paneJoin">
+            <div class="input-group">
+                <input type="text" class="room-input" id="joinCodeInput" placeholder="CODE" maxlength="6" />
+                <button class="action-btn" id="joinConnectBtn" style="padding: 12px 25px; font-size: 1.1rem;">Connect</button>
+            </div>
+
+            <div class="players-lobby-card" id="joinLobbyCard" style="display: none;">
+                <div class="player-slot slot-p1">
+                    <div class="player-avatar avatar-p1">P1</div>
+                    <div class="player-name name-p1">Host (Blue)</div>
+                    <div class="player-status status-ready" id="joinHostStatus">Connected</div>
+                </div>
+
+                <div class="player-slot slot-p2">
+                    <div class="player-avatar avatar-p2">P2</div>
+                    <div class="player-name name-p2">You (Bright Orange)</div>
+                    <div class="player-status status-ready">Ready</div>
+                </div>
+            </div>
+
+            <p style="color: #aaa; font-size: 0.95rem;" id="joinHelpText">Ask the Host for their 6-letter Room Code to join!</p>
+        </div>
+
+        <!-- SAVED DATA JSON BAR -->
+        <div class="saved-progress-box">
+            <div>
+                <span style="color: #36FF01; font-weight: bold;">💾 Local Save (JSON):</span>
+                <span id="saveSummaryText" style="color: #ccc; margin-left: 8px;">Level 1 | 0 Coins Cleared</span>
+            </div>
+            <button id="resetSaveBtn" style="background: transparent; border: 1px solid #ff4444; color: #ff8888; padding: 4px 10px; border-radius: 12px; cursor: pointer;">Reset Save</button>
+        </div>
+
+        <button class="return-btn" onclick="window.location.href='../index.html'">← Return to Main Menu</button>
+    </div>
+
+    <script type="module">
+        import { coopNet } from '../js/multiplayer/network.js';
+        import { CoopStorage } from '../js/multiplayer/coopStorage.js';
+
+        let isHost = true;
+        let activeRoomCode = '';
+
+        // Load & display saved JSON data
+        function refreshSavedDataUI() {
+            const data = CoopStorage.getData();
+            const textElem = document.getElementById('saveSummaryText');
+            if (textElem) {
+                textElem.textContent = `Current Level: ${data.currentLevel + 1} | Max Cleared: ${data.maxLevelCleared} | Coins: ${data.totalCoinsCollected || 0}`;
+            }
+        }
+        refreshSavedDataUI();
+
+        document.getElementById('resetSaveBtn').addEventListener('click', () => {
+            if (confirm('Reset Co-Op saved level progress to Level 1?')) {
+                CoopStorage.resetAll();
+                refreshSavedDataUI();
+            }
+        });
+
+        // Copy button
+        document.getElementById('copyCodeBtn').addEventListener('click', () => {
+            if (activeRoomCode) {
+                navigator.clipboard.writeText(activeRoomCode).then(() => {
+                    const btn = document.getElementById('copyCodeBtn');
+                    btn.textContent = '✅ Copied!';
+                    setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000);
+                });
+            }
+        });
+
+        // Tab Switching
+        const tabCreate = document.getElementById('tabCreate');
+        const tabJoin = document.getElementById('tabJoin');
+        const paneCreate = document.getElementById('paneCreate');
+        const paneJoin = document.getElementById('paneJoin');
+
+        tabCreate.addEventListener('click', () => {
+            isHost = true;
+            tabCreate.classList.add('active');
+            tabJoin.classList.remove('active');
+            paneCreate.classList.add('active');
+            paneJoin.classList.remove('active');
+            if (!activeRoomCode) {
+                initHostRoom();
+            }
+        });
+
+        tabJoin.addEventListener('click', () => {
+            isHost = false;
+            tabJoin.classList.add('active');
+            tabCreate.classList.remove('active');
+            paneJoin.classList.add('active');
+            paneCreate.classList.remove('active');
+        });
+
+        // Initialize Host Room (Stable)
+        async function initHostRoom() {
+            try {
+                const res = await coopNet.createRoom();
+                activeRoomCode = res.roomCode;
+                document.getElementById('hostRoomCode').textContent = activeRoomCode;
+                CoopStorage.saveData({ roomCode: activeRoomCode, isHost: true });
+            } catch (err) {
+                console.error('Host creation error:', err);
+                document.getElementById('hostRoomCode').textContent = 'ERROR';
+            }
+        }
+
+        // Host Network Listeners
+        coopNet.on('PLAYER_JOINED', () => {
+            const hostP2Status = document.getElementById('hostP2Status');
+            if (hostP2Status) {
+                hostP2Status.textContent = 'CONNECTED';
+                hostP2Status.className = 'player-status status-ready';
+            }
+
+            const startBtn = document.getElementById('hostStartBtn');
+            startBtn.disabled = false;
+            const savedData = CoopStorage.getData();
+            startBtn.textContent = savedData.currentLevel > 0 ? `Resume Co-Op (Level ${savedData.currentLevel + 1})` : 'Start Co-Op Game';
+        });
+
+        document.getElementById('hostStartBtn').addEventListener('click', () => {
+            const savedData = CoopStorage.getData();
+            const startLevel = savedData.currentLevel || 0;
+
+            // Send start packet to Player 2
+            coopNet.send('START_GAME', { roomCode: activeRoomCode, level: startLevel });
+
+            // Allow network packet to be transmitted before unloading page
+            setTimeout(() => {
+                window.location.href = `coopGame.html?host=true&room=${activeRoomCode}&level=${startLevel}`;
+            }, 120);
+        });
+
+        // Join Client Connect
+        document.getElementById('joinConnectBtn').addEventListener('click', async () => {
+            const code = document.getElementById('joinCodeInput').value.trim();
+            if (!code || code.length < 4) {
+                alert('Please enter a valid Room Code.');
+                return;
+            }
+
+            const btn = document.getElementById('joinConnectBtn');
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                const res = await coopNet.joinRoom(code);
+                activeRoomCode = res.roomCode;
+                CoopStorage.saveData({ roomCode: activeRoomCode, isHost: false });
+
+                btn.textContent = 'Connected!';
+                document.getElementById('joinLobbyCard').style.display = 'flex';
+                document.getElementById('joinHelpText').textContent = 'Waiting for Host to start the game...';
+            } catch (err) {
+                alert('Could not join room. Please verify the code and ensure Host is in the lobby.');
+                btn.disabled = false;
+                btn.textContent = 'Connect';
+            }
+        });
+
+        // Client receives start game from host
+        coopNet.on('START_GAME', (data) => {
+            window.location.href = `coopGame.html?host=false&room=${data.roomCode || activeRoomCode}&level=${data.level || 0}`;
+        });
+
+        // Start host room on initial page load
+        initHostRoom();
+    </script>
+</body>
+
+</html>

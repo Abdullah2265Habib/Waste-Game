@@ -332,6 +332,7 @@
         <h1 class="title">Fate Runner</h1>
         <div class="button-container">
             <button class="menu-button" id="playButton">Play</button>
+            <button class="menu-button" id="coopButton">Co-Op Mode</button>
             <button class="menu-button" id="modeButton">
                 Mode
                 <span class="mode-badge" id="currentModeBadge">(NORMAL)</span>
@@ -407,6 +408,10 @@
         // Button functionality
         document.getElementById('playButton').addEventListener('click', function () {
             window.location.href = 'html/mainGame.html';
+        });
+
+        document.getElementById('coopButton').addEventListener('click', function () {
+            window.location.href = 'html/coopLobby.html';
         });
 
         const modeModal = document.getElementById('modeModal');
