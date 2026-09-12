@@ -152,7 +152,7 @@ export class CoopLevel {
         }
     }
 
-    animate(step, p1Keys, p2Keys) {
+    animate(step, localKeys, localPlayerId = 1) {
         if (this.status != null) this.finishDelay -= step;
 
         while (step > 0) {
@@ -160,9 +160,13 @@ export class CoopLevel {
 
             this.actors.forEach((actor) => {
                 if (actor === this.player1) {
-                    actor.act(thisStep, this, p1Keys);
+                    if (localPlayerId === 1) {
+                        actor.act(thisStep, this, localKeys);
+                    }
                 } else if (actor === this.player2) {
-                    actor.act(thisStep, this, p2Keys);
+                    if (localPlayerId === 2) {
+                        actor.act(thisStep, this, localKeys);
+                    }
                 } else {
                     actor.act(thisStep, this);
                 }

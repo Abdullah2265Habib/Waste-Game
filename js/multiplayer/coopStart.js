@@ -20,7 +20,6 @@ class CoopGameManager {
         this.level = null;
         this.display = null;
         this.keyTracker = new KeyTracker();
-        this.peerKeys = { left: false, right: false, up: false, down: false };
         this.isRunning = false;
 
         this._setupHUDMeta();
@@ -50,18 +49,16 @@ class CoopGameManager {
 
         try {
             if (this.isHost) {
-                // Pass existing room code so host maintains the lobby room ID
                 await coopNet.createRoom(this.roomCode);
             } else {
                 await coopNet.joinRoom(this.roomCode);
             }
         } catch (e) {
-            console.warn('[CoopGameManager] WebRTC direct connect warning:', e);
+            console.warn('[CoopGameManager] WebRTC connect notice:', e);
         }
     }
 
     _bindNetworkEvents() {
-        // Connection status
         coopNet.on('connected', () => {
             console.log('[CoopGameManager] WebRTC DataChannel connected successfully!');
             const roleBadge = document.getElementById('hudRole');
@@ -78,21 +75,25 @@ class CoopGameManager {
         });
 
         if (this.isHost) {
-            // Host receives Orange Player 2 input keys over WebRTC UDP
-            coopNet.on('P2_KEYS', (keys) => {
-                if (keys) {
-                    this.peerKeys = keys;
+            // Host receives Orange Player 2's direct position and state
+            coopNet.on('P2_STATE', (state) => {
+                if (this.level && this.level.player2 && state) {
+                    this.level.player2.deserialize(state);
                 }
             });
         } else {
-            // Player 2 receives Host authoritative snapshot over WebRTC UDP
-            coopNet.on('STATE_SYNC', (state) => {
-                this._applyHostState(state);
+            // Player 2 receives Host Player 1's direct position and state
+            coopNet.on('P1_STATE', (state) => {
+                if (this.level && this.level.player1 && state) {
+                    this.level.player1.deserialize(state);
+                }
             });
 
-            coopNet.on('P1_KEYS', (keys) => {
-                if (keys) {
-                    this.peerKeys = keys;
+            // Player 2 receives World state (coins, game status)
+            coopNet.on('WORLD_SYNC', (data) => {
+                if (this.level && data) {
+                    this.level.collectedCoins = data.coins;
+                    if (data.status) this.level.status = data.status;
                 }
             });
 
@@ -150,17 +151,18 @@ class CoopGameManager {
             };
 
             if (this.isHost) {
-                // Host sends P1 keys and runs physics for both players
-                coopNet.send('P1_KEYS', myKeys);
-
-                const p1Keys = myKeys;
-                const p2Keys = this.peerKeys;
-
-                this.level.animate(step, p1Keys, p2Keys);
+                // Host runs local physics for Player 1 and world hazards
+                this.level.animate(step, myKeys, 1);
                 this.display.drawFrame();
 
-                // Broadcast authoritative position and state over UDP DataChannel
-                this._broadcastState();
+                // Broadcast Player 1 state and World state
+                if (coopNet.isConnected && this.level.player1) {
+                    coopNet.send('P1_STATE', this.level.player1.serialize());
+                    coopNet.send('WORLD_SYNC', {
+                        coins: this.level.collectedCoins,
+                        status: this.level.status
+                    });
+                }
 
                 if (this.level.isFinished()) {
                     this.isRunning = false;
@@ -169,15 +171,14 @@ class CoopGameManager {
                     return false;
                 }
             } else {
-                // Player 2: send input keys to host over UDP
-                coopNet.send('P2_KEYS', myKeys);
-
-                const p1Keys = this.peerKeys;
-                const p2Keys = myKeys;
-
-                // Client prediction
-                this.level.animate(step, p1Keys, p2Keys);
+                // Player 2 runs local physics for Player 2 and world hazards
+                this.level.animate(step, myKeys, 2);
                 this.display.drawFrame();
+
+                // Send Player 2 position and movement to Host
+                if (coopNet.isConnected && this.level.player2) {
+                    coopNet.send('P2_STATE', this.level.player2.serialize());
+                }
 
                 if (this.level.isFinished()) {
                     this.isRunning = false;
@@ -190,31 +191,8 @@ class CoopGameManager {
         AnimationRunner.run(frameStep);
     }
 
-    _broadcastState() {
-        if (!this.level || !coopNet.isConnected) return;
-
-        const packet = {
-            coins: this.level.collectedCoins,
-            status: this.level.status,
-            p1: this.level.player1.serialize(),
-            p2: this.level.player2.serialize()
-        };
-
-        coopNet.send('STATE_SYNC', packet);
-    }
-
-    _applyHostState(state) {
-        if (!this.level || !state) return;
-
-        this.level.collectedCoins = state.coins;
-        if (state.p1 && this.level.player1) this.level.player1.deserialize(state.p1);
-        if (state.p2 && this.level.player2) this.level.player2.deserialize(state.p2);
-        if (state.status) this.level.status = state.status;
-    }
-
     _handleLevelEnd(status) {
         if (status === 'lost') {
-            // Both players died! Reset to Level 1
             CoopStorage.recordBothDiedReset();
             coopNet.send('RESET_TO_LEVEL_1', {});
             alert('💀 Both players perished! Resetting to Level 1.');
@@ -222,7 +200,6 @@ class CoopGameManager {
             this._startLevel(0);
 
         } else if (status === 'won') {
-            // Level cleared!
             CoopStorage.recordLevelCleared(this.currentLevelIndex, this.level.collectedCoins);
             this.currentLevelIndex++;
             coopNet.send('LEVEL_CHANGE', { levelIndex: this.currentLevelIndex });

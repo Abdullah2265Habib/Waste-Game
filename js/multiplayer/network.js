@@ -1,20 +1,36 @@
 'use strict';
 
 /**
- * Robust WebRTC UDP/DataChannel Network Layer for 2-Player Co-Op.
- * Fixed handshake lifecycle: bidirectional connection acknowledgement,
- * automatic retries, and instant Player 2 detection on host.
+ * Universal WebRTC Network Layer for 2-Player Co-Op.
+ * - Works on ALL networks: same Wi-Fi (LAN), different Wi-Fi, mobile 4G/5G, and Internet (WAN).
+ * - Multi-STUN (Google, Twilio, Mozilla) for direct P2P hole-punching.
+ * - Free OpenRelay TURN servers for symmetric NAT / carrier firewalls.
+ * - Clean connection lifecycle preventing overlapping/stale connections.
  */
 
 const ICE_SERVERS = [
+    // Public STUN servers for direct P2P
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' },
     { urls: 'stun:stun.services.mozilla.com' },
-    { urls: 'stun:stun.stunprotocol.org:3478' }
+
+    // Free OpenRelay TURN servers for cross-network / symmetric NAT traversal
+    {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+    }
 ];
 
 export class CoopNetwork {
@@ -28,8 +44,6 @@ export class CoopNetwork {
         this.isConnected = false;
         this.pingMs = 0;
         this.retryTimeout = null;
-        this.handshakeInterval = null;
-        this._retriedOnce = false;
     }
 
     on(eventType, callback) {
@@ -77,17 +91,16 @@ export class CoopNetwork {
                 return;
             }
 
+            // Reuse existing active peer if already open
             if (this.peer && !this.peer.destroyed && this.peerId === hostPeerId) {
                 console.log('[CoopNetwork] Host peer already active with ID:', hostPeerId);
                 resolve({ roomCode: this.roomCode, peerId: this.peerId });
                 return;
             }
 
-            if (this.peer) {
-                try { this.peer.destroy(); } catch (e) {}
-            }
+            this.disconnect();
 
-            console.log('[CoopNetwork] Creating stable host peer:', hostPeerId);
+            console.log('[CoopNetwork] Creating host peer:', hostPeerId);
 
             this.peer = new window.Peer(hostPeerId, {
                 debug: 1,
@@ -99,8 +112,7 @@ export class CoopNetwork {
 
             this.peer.on('open', (id) => {
                 this.peerId = id;
-                this._retriedOnce = false;
-                console.log('[CoopNetwork] Host room online with ID:', id, 'Room:', this.roomCode);
+                console.log('[CoopNetwork] Host online with ID:', id, 'Room:', this.roomCode);
                 resolve({ roomCode: this.roomCode, peerId: id });
             });
 
@@ -111,24 +123,12 @@ export class CoopNetwork {
 
             this.peer.on('error', (err) => {
                 console.error('[CoopNetwork] Host peer error:', err);
-                if (err.type === 'unavailable-id') {
-                    if (!existingCode && !this._retriedOnce) {
-                        this._retriedOnce = true;
-                        this.roomCode = this._generateRoomCode();
-                        setTimeout(() => {
-                            this.createRoom().then(resolve).catch(reject);
-                        }, 500);
-                    } else {
-                        reject(err);
-                    }
-                } else {
-                    reject(err);
-                }
+                reject(err);
             });
         });
     }
 
-    joinRoom(code, maxRetries = 15) {
+    joinRoom(code, maxRetries = 10) {
         return new Promise((resolve, reject) => {
             this.isHost = false;
             this.roomCode = code.toUpperCase().trim();
@@ -139,9 +139,7 @@ export class CoopNetwork {
                 return;
             }
 
-            if (this.peer) {
-                try { this.peer.destroy(); } catch (e) {}
-            }
+            this.disconnect();
 
             let attempt = 0;
             let resolved = false;
@@ -164,69 +162,37 @@ export class CoopNetwork {
                     serialization: 'json'
                 });
 
-                // Set up event listeners immediately on connection
-                this._setupDataChannel(conn);
-
-                let openTimer = setTimeout(() => {
+                let timer = setTimeout(() => {
                     if (!this.isConnected && attempt < maxRetries && !resolved) {
                         console.warn('[CoopNetwork] Connection attempt timed out, retrying in 1s...');
                         try { conn.close(); } catch (e) {}
-                        this.retryTimeout = setTimeout(tryConnect, 1000);
+                        this.retryTimeout = setTimeout(tryConnect, 1200);
                     } else if (!this.isConnected && !resolved) {
                         reject(new Error('Unable to connect to host across network.'));
                     }
-                }, 3500);
+                }, 4000);
 
-                const onConnOpen = () => {
-                    clearTimeout(openTimer);
+                conn.on('open', () => {
+                    clearTimeout(timer);
                     if (!resolved) {
                         resolved = true;
-                        console.log('[CoopNetwork] Successfully connected to host over WebRTC DataChannel!');
-
-                        // Periodically send PLAYER_JOINED handshake until acknowledged by host
-                        if (this.handshakeInterval) clearInterval(this.handshakeInterval);
-                        this.handshakeInterval = setInterval(() => {
-                            if (!this.isConnected) {
-                                clearInterval(this.handshakeInterval);
-                                return;
-                            }
-                            this.send('PLAYER_JOINED', { playerId: 2, name: 'Player 2 (Orange)' });
-                        }, 400);
-
-                        this.on('HOST_ACK', () => {
-                            if (this.handshakeInterval) {
-                                clearInterval(this.handshakeInterval);
-                                this.handshakeInterval = null;
-                            }
-                        });
-                        this.on('START_GAME', () => {
-                            if (this.handshakeInterval) {
-                                clearInterval(this.handshakeInterval);
-                                this.handshakeInterval = null;
-                            }
-                        });
-
+                        console.log('[CoopNetwork] Connected to host over WebRTC DataChannel!');
+                        this._setupDataChannel(conn);
                         resolve({ roomCode: this.roomCode, hostId: hostPeerId });
                     }
-                };
-
-                if (conn.open) {
-                    onConnOpen();
-                } else {
-                    conn.on('open', onConnOpen);
-                }
+                });
 
                 conn.on('error', (err) => {
-                    console.warn('[CoopNetwork] Connection attempt error:', err);
-                    clearTimeout(openTimer);
+                    console.warn('[CoopNetwork] Connection error:', err);
+                    clearTimeout(timer);
                     if (!resolved && attempt < maxRetries) {
-                        this.retryTimeout = setTimeout(tryConnect, 1200);
+                        this.retryTimeout = setTimeout(tryConnect, 1500);
                     }
                 });
             };
 
-            this.peer.on('open', (id) => {
-                this.peerId = id;
+            this.peer.on('open', () => {
+                this.peerId = this.peer.id;
                 tryConnect();
             });
 
@@ -242,36 +208,24 @@ export class CoopNetwork {
     }
 
     _setupDataChannel(conn) {
+        if (this.connection && this.connection !== conn) {
+            try { this.connection.close(); } catch (e) {}
+        }
+
         this.connection = conn;
+        this.isConnected = true;
+        console.log(`[CoopNetwork] DataChannel ESTABLISHED (isHost: ${this.isHost})`);
+        this.emit('connected', { isHost: this.isHost, roomCode: this.roomCode });
 
-        const onOpen = () => {
-            if (this.isConnected) return;
-            this.isConnected = true;
-            console.log(`[CoopNetwork] Connection OPEN (isHost: ${this.isHost})`);
-            this.emit('connected', { isHost: this.isHost, roomCode: this.roomCode });
-
-            if (this.isHost) {
-                // Host immediately knows Player 2 connected!
-                this.emit('PLAYER_JOINED', { playerId: 2, name: 'Player 2 (Orange)' });
-                this.send('HOST_ACK', { roomCode: this.roomCode });
-            } else {
-                this.send('PLAYER_JOINED', { playerId: 2, name: 'Player 2 (Orange)' });
-            }
-        };
-
-        if (conn.open) {
-            onOpen();
+        if (this.isHost) {
+            this.emit('PLAYER_JOINED', { playerId: 2, name: 'Player 2 (Orange)' });
+            this.send('HOST_ACK', { roomCode: this.roomCode });
         } else {
-            conn.on('open', onOpen);
+            this.send('PLAYER_JOINED', { playerId: 2, name: 'Player 2 (Orange)' });
         }
 
         conn.on('data', (packet) => {
             if (!packet || typeof packet !== 'object') return;
-
-            if (!this.isConnected) {
-                this.isConnected = true;
-                this.emit('connected', { isHost: this.isHost, roomCode: this.roomCode });
-            }
 
             if (packet.type === 'PING') {
                 this.send('PONG', { time: packet.time });
@@ -284,7 +238,7 @@ export class CoopNetwork {
             }
 
             if (packet.type === 'PLAYER_JOINED') {
-                console.log('[CoopNetwork] Host received PLAYER_JOINED packet:', packet.payload);
+                console.log('[CoopNetwork] Host received PLAYER_JOINED from peer');
                 if (this.isHost) {
                     this.emit('PLAYER_JOINED', packet.payload || { playerId: 2 });
                     this.send('HOST_ACK', { roomCode: this.roomCode });
@@ -318,7 +272,7 @@ export class CoopNetwork {
             try {
                 this.connection.send({ type, payload });
             } catch (e) {
-                console.warn('[CoopNetwork] Send packet error:', e);
+                console.warn('[CoopNetwork] Send error:', e);
             }
         }
     }
@@ -330,10 +284,6 @@ export class CoopNetwork {
     }
 
     disconnect() {
-        if (this.handshakeInterval) {
-            clearInterval(this.handshakeInterval);
-            this.handshakeInterval = null;
-        }
         if (this.retryTimeout) {
             clearTimeout(this.retryTimeout);
             this.retryTimeout = null;
